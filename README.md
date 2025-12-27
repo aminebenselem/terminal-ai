@@ -1,321 +1,134 @@
 # Terminal AI
 
-> An intelligent terminal assistant with enterprise-grade DevOps infrastructure
+An intelligent terminal assistant that suggests shell commands from natural language input. Minimal setup: Go CLI + Zsh/Bash adapters + optional Docker. No Kubernetes, Terraform, or ELK.
 
-Terminal AI is a CLI tool that provides AI-powered command suggestions directly in your terminal, backed by a scalable Go HTTP server and deployed on Kubernetes with full observability via the ELK stack.
+## Features
 
-## 🚀 Features
+- Intelligent suggestions: type a request, get a shell command
+- Zsh/Bash adapters: trigger suggestions inline (Ctrl+Space by default)
+- Go CLI engine: calls Gemini API with context
+- Robust fallback: never hangs; offline mode available
+- Docker support: build and run a containerized backend binary
 
-- **Intelligent Command Suggestions**: AI-powered terminal assistance integrated into your shell
-- **Multi-Shell Support**: Native adapters for Bash, Zsh, and POSIX-compliant shells
-- **Lightweight Go Engine**: Fast, compiled binary with minimal dependencies
-- **Scalable Backend**: HTTP server ready for production workloads
-- **Kubernetes Deployment**: Full K8s manifests for container orchestration
-- **Infrastructure as Code**: Terraform configurations for reproducible deployments
-- **Complete Observability**: ELK stack (Elasticsearch + Logstash + Kibana) for logs and metrics
-
-## 📁 Project Structure
+## Project Structure
 
 ```
 terminal-ai/
-├── cli/                         # CLI entrypoint
-│   └── terminal-ai              # shell-executable launcher
-├── ai-core/                     # AI logic (Go engine)
-│   └── engine.go                # input → suggestion logic
-├── adapters/                    # shell-specific integration
-│   ├── adapter.zsh
-│   ├── adapter.bash
-│   └── adapter.posix
-├── devops/                      # DevOps layer
-│   ├── terraform/               # Terraform configs
-│   │   ├── main.tf
-│   │   ├── variables.tf
-│   │   └── outputs.tf
-│   ├── k8s/                     # Kubernetes manifests
-│   │   ├── backend-deployment.yaml
-│   │   ├── backend-service.yaml
-│   │   ├── elasticsearch.yaml
-│   │   ├── logstash-configmap.yaml
-│   │   └── kibana.yaml
-│   └── docker/                  # Dockerfiles
-│       ├── backend.Dockerfile
-│       └── elk.Dockerfile
-├── install.sh                   # installs CLI + adapters
-├── Makefile                     # build, test, deploy tasks
-├── README.md
-└── LICENSE
+├── adapters/            # Shell integrations
+│   ├── adapter.zsh      # Zsh widget + keybinding
+│   ├── adapter.bash     # Bash binding
+│   └── adapter.posix    # POSIX fallback
+├── ai-core/             # Go engine (CLI)
+│   ├── engine.go        # Suggestion logic + Gemini call
+│   └── go.mod           # Module config
+├── cli/
+│   └── terminal-ai      # Shell-executable launcher
+├── devops/
+│   └── docker/
+│       └── backend.Dockerfile
+├── install.sh           # Build + install helper
+├── Makefile             # Build/test/docker targets
+└── README.md
 ```
 
-## 🛠️ Tech Stack
-
-| Component | Technology |
-|-----------|-----------|
-| CLI | Go binary |
-| Shell Integration | Bash, Zsh, POSIX |
-| Backend | Go HTTP server |
-| Container Runtime | Docker |
-| Orchestration | Kubernetes (Minikube) |
-| IaC | Terraform |
-| Observability | ELK Stack (Elasticsearch, Logstash, Kibana) |
-| Build System | Makefile |
-
-## 📦 Installation
-
-### Prerequisites
+## Requirements
 
 - Go 1.21+
-- Docker
-- Minikube (for local Kubernetes)
-- Terraform 1.5+
-- kubectl
+- `jq` (adapter JSON parsing)
+- Zsh or Bash
+- Optional: Docker
 
-### Quick Start
+## Install
 
 ```bash
-# Clone the repository
-git clone https://github.com/yourusername/terminal-ai.git
-cd terminal-ai
+# Prereqs
+which jq || sudo apt-get update && sudo apt-get install -y jq
 
-# Build the AI core engine
+# Build and install
 make build
-
-# Install CLI and shell adapters
 make install
+```
 
-# Build Docker images
+## Configure
+
+Set your Gemini API key and optional tuning flags.
+
+```bash
+export GEMINI_API_KEY="your-api-key"
+# Optional: tweak behavior
+export TERMINAL_AI_TIMEOUT=5   # seconds, default 5
+export TERMINAL_AI_DEBUG=1     # print debug info to stderr
+export TERMINAL_AI_OFFLINE=0   # set to 1 to skip network calls
+```
+
+## Usage
+
+- Direct CLI:
+```bash
+terminal-ai "list all files"
+TERMINAL_AI_JSON=1 terminal-ai "find large files" | jq .
+```
+
+- Zsh adapter:
+```bash
+# If not auto-added by install.sh
+source adapters/adapter.zsh
+# Type a partial request then press Ctrl+Space
+```
+
+- Bash adapter:
+```bash
+# If not auto-added by install.sh
+source adapters/adapter.bash
+# Type a partial request then press Ctrl+Space
+```
+
+## Docker
+
+```bash
+# Build image
 make docker-build
 
-# Deploy to Kubernetes
-make terraform
-make k8s-deploy
+# Run container locally
+make docker-run
+
+# View logs / stop
+make docker-logs
+make docker-stop
 ```
 
-### Manual Installation
+## Troubleshooting
 
-```bash
-# Build the Go engine
-cd ai-core
-go build -o terminal-ai-core engine.go
-sudo mv terminal-ai-core /usr/local/bin/
+- Key not set:
+       - Ensure `GEMINI_API_KEY` is exported in the same shell session.
+       - Verify: `env | grep GEMINI_API_KEY`.
 
-# Install shell adapter
-./install.sh
-```
+- Hanging / long wait:
+       - The engine uses an HTTP timeout (default 5s). Adjust via `TERMINAL_AI_TIMEOUT`.
+       - Force offline mode: `export TERMINAL_AI_OFFLINE=1` (echoes input as suggestion).
 
-Restart your shell or run:
-```bash
-source ~/.zshrc  # for Zsh
-source ~/.bashrc # for Bash
-```
+- 429 quota errors:
+       - Check usage and billing for the project tied to your key.
+       - Try again after the suggested retry delay or use offline mode.
 
-## 💻 Usage
+- Adapter shows nothing:
+       - Confirm `terminal-ai` is on PATH: `which terminal-ai`.
+       - Test JSON path: `TERMINAL_AI_JSON=1 terminal-ai "list all files" | jq .`.
 
-### CLI Mode
+## Development Notes
 
-```bash
-# Get a command suggestion
-terminal-ai "list all files modified today"
+- `ai-core/engine.go` assembles a contextual prompt from:
+       - `command_history`, `last_command_output`, `user_clipboard`, and `user_query`.
+- Calls Gemini `gemini-pro:generateContent`, expects a single raw command in response.
+- Fallback returns the input command if API fails; never blocks the adapter.
 
-# Pass arguments directly
-terminal-ai find large files
-```
+## Roadmap (Optional)
 
-### Interactive Shell Mode
+- Improve context capture (shell history, last output, clipboard).
+- Add tests and CI.
+- Support additional providers (OpenAI, local models).
 
-Once the adapter is installed, use the keybinding in your shell:
+## License
 
-- **Zsh/Bash**: Press `Tab` after typing a partial command
-- The AI suggestion will appear inline
+MIT
 
-Example:
-```bash
-$ list files in current dir<TAB>
-# Suggestion: ls -la
-```
-
-## 🏗️ Architecture
-
-```
-┌─────────────┐
-│   Terminal  │
-│   (Bash/Zsh)│
-└──────┬──────┘
-       │
-       ▼
-┌─────────────┐
-│ CLI Adapter │
-└──────┬──────┘
-       │
-       ▼
-┌─────────────┐      ┌──────────────┐
-│  AI Core    │─────▶│   Backend    │
-│  (Go CLI)   │      │  (Go HTTP)   │
-└─────────────┘      └──────┬───────┘
-                            │
-                            ▼
-                     ┌──────────────┐
-                     │  Logstash    │
-                     └──────┬───────┘
-                            │
-                            ▼
-                     ┌──────────────┐
-                     │Elasticsearch │
-                     └──────┬───────┘
-                            │
-                            ▼
-                     ┌──────────────┐
-                     │   Kibana     │
-                     └──────────────┘
-```
-
-## 🐳 Docker
-
-### Build Images
-
-```bash
-# Build backend image
-docker build -f devops/docker/backend.Dockerfile -t terminal-ai-backend:latest .
-
-# Build ELK image (optional, can use official images)
-docker build -f devops/docker/elk.Dockerfile -t terminal-ai-elk:latest .
-```
-
-### Run Locally
-
-```bash
-# Run backend
-docker run -p 8080:8080 terminal-ai-backend:latest
-
-# Run with Docker Compose (if configured)
-docker-compose up -d
-```
-
-## ☸️ Kubernetes Deployment
-
-### Using Terraform
-
-```bash
-cd devops/terraform
-terraform init
-terraform plan
-terraform apply
-```
-
-### Manual Deployment
-
-```bash
-# Create namespace
-kubectl create namespace ai-backend
-
-# Deploy backend
-kubectl apply -f devops/k8s/backend-deployment.yaml
-kubectl apply -f devops/k8s/backend-service.yaml
-
-# Deploy ELK stack
-kubectl apply -f devops/k8s/elasticsearch.yaml
-kubectl apply -f devops/k8s/logstash-configmap.yaml
-kubectl apply -f devops/k8s/kibana.yaml
-
-# Check deployment status
-kubectl get pods -n ai-backend
-```
-
-### Access Services
-
-```bash
-# Port-forward backend
-kubectl port-forward -n ai-backend svc/ai-backend 8080:8080
-
-# Access Kibana dashboard
-kubectl port-forward -n ai-backend svc/kibana 5601:5601
-# Open http://localhost:5601
-```
-
-## 📊 Observability
-
-The ELK stack provides comprehensive observability:
-
-- **Elasticsearch**: Stores all application logs and metrics
-- **Logstash**: Processes and transforms log data
-- **Kibana**: Visualizes logs, creates dashboards, and enables log search
-
-### View Logs in Kibana
-
-1. Access Kibana at `http://localhost:5601`
-2. Navigate to **Discover**
-3. Create an index pattern: `logstash-*`
-4. Query and filter logs from the terminal-ai backend
-
-## 🔧 Development
-
-### Makefile Commands
-
-```bash
-make build          # Build Go AI engine
-make install        # Install CLI binary and adapters
-make docker-build   # Build Docker images
-make k8s-deploy     # Deploy to Kubernetes
-make terraform      # Run Terraform apply
-make test           # Run tests
-make clean          # Clean build artifacts
-```
-
-### Testing Shell Adapters
-
-```bash
-# Test in clean Bash environment
-bash --norc
-
-# Test in clean Zsh environment
-zsh -f
-
-# Load adapter manually
-source adapters/adapter.zsh
-```
-
-### Developing the AI Core
-
-```bash
-cd ai-core
-go run engine.go "your test input"
-
-# Run tests
-go test ./...
-
-# Build optimized binary
-go build -ldflags="-s -w" -o terminal-ai-core engine.go
-```
-
-## 🤝 Contributing
-
-Contributions are welcome! Please follow these steps:
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 🎓 Educational Context
-
-This project demonstrates proficiency in:
-
-- **Go Development**: CLI tools and HTTP servers
-- **Shell Scripting**: Cross-shell compatibility (Bash, Zsh, POSIX)
-- **Containerization**: Docker multi-stage builds and image optimization
-- **Orchestration**: Kubernetes deployments, services, and configmaps
-- **Infrastructure as Code**: Terraform for reproducible infrastructure
-- **Observability**: ELK stack integration and log aggregation
-- **DevOps Best Practices**: CI/CD automation, clean architecture, separation of concerns
-
-## 📞 Support
-
-For questions or issues, please open an issue on GitHub.
-
----
-
-**Built with ❤️ using Go, Kubernetes, and modern DevOps practices**

@@ -1,0 +1,29 @@
+#!/bin/sh
+#
+# Terminal AI - POSIX Adapter
+# This script provides basic terminal-ai integration for POSIX-compliant shells
+# Note: Interactive features are limited in pure POSIX sh
+#
+
+# Check if terminal-ai is installed
+if ! command -v terminal-ai > /dev/null 2>&1; then
+    echo "Warning: terminal-ai not found in PATH"
+    return 1
+fi
+
+# Create a simple alias for quick access
+alias tai='terminal-ai'
+
+# Function to get AI suggestion (manual invocation required)
+ai_suggest() {
+    if [ -z "$1" ]; then
+        echo "Usage: ai_suggest <natural language query>"
+        echo "Example: ai_suggest 'list all files'"
+        return 1
+    fi
+    
+    # Get and display suggestion
+    terminal-ai "$@"
+}
+
+echo "Terminal AI loaded (POSIX). Use 'tai' or 'ai_suggest' for suggestions."
